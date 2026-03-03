@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blockers</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        
+        body {
+            margin: 0;
+            padding: 0;
+            background: #f0f0f0;
+            font-family: 'Press Start 2P', system-ui;
+            color: #222;
+            text-align: center;
+            overflow: hidden;
+        }
+        
+        #lobby {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 40px 60px;
+            border: 8px solid #222;
+            box-shadow: 0 0 0 8px #ffcc00;
+            max-width: 500px;
+            width: 90%;
+        }
+        
+        h1 {
+            font-size: 48px;
+            margin: 0 0 30px 0;
+            color: #ff0000;
+            text-shadow: 4px 4px 0 #222;
+        }
+        
+        button {
+            background: #ff0000;
+            color: white;
+            border: 6px solid #222;
+            padding: 15px 30px;
+            font-family: 'Press Start 2P';
+            font-size: 18px;
+            cursor: pointer;
+            margin: 10px;
+            box-shadow: 4px 4px 0 #222;
+            transition: all 0.1s;
+        }
+        
+        button:hover {
+            background: #ff4444;
+            transform: translate(-2px, -2px);
+            box-shadow: 6px 6px 0 #222;
+        }
+        
+        button:active {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0 #222;
+        }
+        
+        input {
+            font-family: 'Press Start 2P';
+            font-size: 18px;
+            padding: 15px;
+            width: 200px;
+            text-align: center;
+            border: 6px solid #222;
+            margin: 20px 0;
+        }
+        
+        #roomInfo {
+            margin-top: 20px;
+            font-size: 18px;
+            min-height: 60px;
+        }
+        
+        #gameContainer {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            background: #fff;
+        }
+        
+        canvas {
+            border: 8px solid #222;
+            box-shadow: 0 0 0 8px #ffcc00;
+            image-rendering: pixelated;
+            background: #ffffff;
+        }
+        
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: white;
+            padding: 10px 20px;
+            border: 6px solid #222;
+            font-size: 14px;
+            text-align: left;
+            box-shadow: 4px 4px 0 #222;
+        }
+        
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 10px 20px;
+            border: 6px solid #222;
+            font-size: 12px;
+            box-shadow: 4px 4px 0 #222;
+        }
+    </style>
+</head>
+<body>
+    <!-- LOBBY SCREEN -->
+    <div id="lobby">
+        <h1>BLOCKERS</h1>
+        <p style="margin:20px 0 30px;font-size:16px;">Multiplayer Cube Physics Arena</p>
+        
+        <button onclick="createRoom()">CREATE ROOM</button>
+        
+        <div style="margin:30px 0;">
+            <input type="text" id="joinCode" placeholder="CODE" maxlength="4">
+            <br>
+            <button onclick="joinRoom()">JOIN ROOM</button>
+        </div>
+        
+        <div id="roomInfo"></div>
+    </div>
+
+    <!-- GAME SCREEN -->
+    <div id="gameContainer">
+        <canvas id="canvas" width="800" height="500"></canvas>
+        
+        <div id="hud">
+            ROOM CODE: <span id="displayCode" style="color:#ff0000;font-weight:bold;"></span><br>
+            YOU: <span id="playerColor" style="font-weight:bold;">BLUE</span>
+        </div>
+        
+        <div id="instructions">
+            ← → MOVE &nbsp;&nbsp;&nbsp; SPACE JUMP<br>
+            (Physics enabled — push the red blocker!)
+        </div>
+    </div>
+
+    <script>
+        // =============== LOBBY LOGIC ===============
+        let currentRoomCode = "";
+        let isHost = false;
+
+        function generateCode() {
+            return Math.floor(1000 + Math.random() * 9000).toString();
+        }
+
+        function createRoom() {
+            currentRoomCode = generateCode();
+            isHost = true;
+            document.getElementById("roomInfo").innerHTML = `
+                <strong>ROOM CREATED!</strong><br>
+                CODE: <span style="color:#ff0000;font-size:24px;">${currentRoomCode}</span><br><br>
+                <button onclick="startGame()">ENTER YOUR WORLD</button>
+            `;
+        }
+
+        function joinRoom() {
+            const input = document.getElementById("joinCode").value.trim().toUpperCase();
+            if (input.length !== 4 || isNaN(input)) {
+                document.getElementById("roomInfo").innerHTML = `<span style="color:red;">Invalid code! Must be 4 digits.</span>`;
+                return;
+            }
+            currentRoomCode = input;
+            isHost = false;
+            document.getElementById("roomInfo").innerHTML = `
+                <strong>JOINED ROOM!</strong><br>
+                CODE: <span style="color:#ff0000;font-size:24px;">${currentRoomCode}</span><br><br>
+                <button onclick="startGame()">ENTER WORLD</button>
+            `;
+        }
+
+        // =============== GAME LOGIC ===============
+        let canvas, ctx;
+        let player, otherPlayer, groundY;
+        let keys = {};
+        let gravity = 0.6;
+        let friction = 0.85;
+        
+        const CUBE_SIZE = 80;
+        const GROUND_HEIGHT = 80;
+
+        function startGame() {
+            // Hide lobby, show game
+            document.getElementById("lobby").style.display = "none";
+            const gameContainer = document.getElementById("gameContainer");
+            gameContainer.style.display = "flex";
+            
+            document.getElementById("displayCode").textContent = currentRoomCode;
+            document.getElementById("playerColor").textContent = isHost ? "BLUE (HOST)" : "BLUE";
+
+            // Setup canvas
+            canvas = document.getElementById("canvas");
+            ctx = canvas.getContext("2d");
+            groundY = canvas.height - GROUND_HEIGHT;
+
+            // Player (you - always blue)
+            player = {
+                x: isHost ? 150 : 500,
+                y: groundY - CUBE_SIZE,
+                vx: 0,
+                vy: 0,
+                width: CUBE_SIZE,
+                height: CUBE_SIZE,
+                color: "#81D4FA",
+                onGround: true
+            };
+
+            // Other player (red blocker)
+            otherPlayer = {
+                x: isHost ? 500 : 150,
+                y: groundY - CUBE_SIZE,
+                vx: 0,
+                vy: 0,
+                width: CUBE_SIZE,
+                height: CUBE_SIZE,
+                color: "#FF5252"
+            };
+
+            // Keyboard controls
+            window.addEventListener("keydown", e => {
+                keys[e.key] = true;
+                if (e.key === " " && player.onGround) {
+                    player.vy = -15;
+                    player.onGround = false;
+                }
+            });
+            window.addEventListener("keyup", e => keys[e.key] = false);
+
+            // Start game loop
+            requestAnimationFrame(gameLoop);
+        }
+
+        function updatePhysics(entity) {
+            // Gravity
+            entity.vy += gravity;
+            
+            // Horizontal movement
+            if (entity === player) {
+                if (keys["ArrowLeft"] || keys["a"] || keys["A"]) entity.vx = -6;
+                else if (keys["ArrowRight"] || keys["d"] || keys["D"]) entity.vx = 6;
+                else entity.vx *= friction;
+            }
+            
+            // Apply velocity
+            entity.x += entity.vx;
+            entity.y += entity.vy;
+
+            // Ground collision
+            if (entity.y >= groundY - entity.height) {
+                entity.y = groundY - entity.height;
+                entity.vy = 0;
+                entity.onGround = true;
+            }
+
+            // Wall bounds
+            if (entity.x < 0) {
+                entity.x = 0;
+                entity.vx = 0;
+            }
+            if (entity.x > canvas.width - entity.width) {
+                entity.x = canvas.width - entity.width;
+                entity.vx = 0;
+            }
+        }
+
+        function checkCollision(a, b) {
+            return !(a.x + a.width < b.x ||
+                     b.x + b.width < a.x ||
+                     a.y + a.height < b.y ||
+                     b.y + b.height < a.y);
+        }
+
+        function resolveCollision(a, b) {
+            // Simple push physics (like bumper cars)
+            const overlapX = (a.width + b.width) / 2 - Math.abs((a.x + a.width/2) - (b.x + b.width/2));
+            const overlapY = (a.height + b.height) / 2 - Math.abs((a.y + a.height/2) - (b.y + b.height/2));
+            
+            if (overlapX > overlapY) {
+                // Horizontal push
+                if (a.x + a.width/2 < b.x + b.width/2) {
+                    a.x -= overlapX / 2;
+                    b.x += overlapX / 2;
+                } else {
+                    a.x += overlapX / 2;
+                    b.x -= overlapX / 2;
+                }
+            } else {
+                // Vertical push (rare)
+                if (a.y + a.height/2 < b.y + b.height/2) {
+                    a.y -= overlapY / 2;
+                } else {
+                    a.y += overlapY / 2;
+                }
+            }
+        }
+
+        function drawCube(entity, isPlayer) {
+            // Main cube
+            ctx.fillStyle = entity.color;
+            ctx.fillRect(entity.x, entity.y, entity.width, entity.height);
+            
+            // Black door/handle (like in your image)
+            ctx.fillStyle = "#111111";
+            ctx.fillRect(
+                entity.x + entity.width * 0.35,
+                entity.y + entity.height * 0.55,
+                entity.width * 0.3,
+                entity.height * 0.35
+            );
+            
+            // Highlight border (pixel style)
+            ctx.strokeStyle = "#222222";
+            ctx.lineWidth = 6;
+            ctx.strokeRect(entity.x + 3, entity.y + 3, entity.width - 6, entity.height - 6);
+            
+            // Tiny shine
+            ctx.fillStyle = "rgba(255,255,255,0.4)";
+            ctx.fillRect(entity.x + 8, entity.y + 8, 15, 15);
+        }
+
+        function drawGround() {
+            // Lime grass (matches your image)
+            ctx.fillStyle = "#7CFC00";
+            ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+            
+            // Grass detail lines
+            ctx.strokeStyle = "#5CB300";
+            ctx.lineWidth = 4;
+            for (let x = 20; x < canvas.width; x += 40) {
+                ctx.beginPath();
+                ctx.moveTo(x, groundY);
+                ctx.lineTo(x + 10, groundY - 15);
+                ctx.stroke();
+            }
+        }
+
+        function gameLoop() {
+            // Clear
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Sky background
+            ctx.fillStyle = "#F0F8FF";
+            ctx.fillRect(0, 0, canvas.width, groundY);
+            
+            // Update physics
+            updatePhysics(player);
+            // Fake red blocker has very light AI (just stands still for demo)
+            // You can push it!
+            
+            // Collision between players
+            if (checkCollision(player, otherPlayer)) {
+                resolveCollision(player, otherPlayer);
+            }
+            
+            // Draw everything
+            drawGround();
+            drawCube(otherPlayer);   // Red blocker
+            drawCube(player);        // You (blue)
+            
+            // Title in corner
+            ctx.fillStyle = "#222";
+            ctx.font = "bold 18px 'Press Start 2P'";
+            ctx.fillText("BLOCKERS", 30, 45);
+            
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Welcome message
+        console.log("%c✅ Blockers demo loaded! Copy this entire file to index.html in a GitHub repo named 'blockers' and enable GitHub Pages.", "color:#ff0000;font-family:monospace");
+    </script>
+</body>
+</html>
